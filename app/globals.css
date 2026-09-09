@@ -106,6 +106,15 @@ button,a { -webkit-tap-highlight-color:transparent; }
 .file-drop__icon { width:29px; height:29px; display:grid; place-items:center; color:var(--wine); border:1px solid #d7b7bd; border-radius:50%; font-size:20px; font-weight:300!important; }
 .file-drop strong { font-family:var(--serif); font-size:16px; font-weight:400; }
 .file-drop small { color:#99888a; font-size:9px; }
+.file-drop--preview { min-height:0; gap:0; overflow:hidden; padding:0; border-style:solid; background:#fffaf6; }
+.file-preview { position:relative; width:100%; aspect-ratio:4/3; overflow:hidden; background:#e8d7d8; }
+.file-preview img { width:100%; height:100%; display:block; object-fit:cover; object-position:center 35%; transition:transform .35s ease; }
+.file-preview__overlay { position:absolute; inset:0; display:grid; place-items:center; color:#fff!important; background:rgba(48,24,30,0); opacity:0; font-size:11px!important; letter-spacing:.08em!important; text-transform:uppercase; font-weight:800!important; transition:background .25s ease,opacity .25s ease; }
+.file-preview__footer { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:#fff8f4; border-top:1px solid rgba(127,23,52,.1); }
+.file-preview__footer strong { color:var(--wine); font-family:inherit; font-size:10px; letter-spacing:.05em; font-weight:800; }
+.file-preview__footer small { color:#8f7d80; font-size:9px; }
+.file-drop--preview:hover .file-preview img { transform:scale(1.025); }
+.file-drop--preview:hover .file-preview__overlay { background:rgba(48,24,30,.42); opacity:1; }
 .upload-button { min-height:49px; display:flex; align-items:center; justify-content:space-between; padding:0 17px; border:1px solid var(--wine); border-radius:2px; color:#fff; background:var(--wine); cursor:pointer; font-size:12px; font-weight:700; transition:background .2s,transform .2s; }
 .upload-button:hover:not(:disabled) { background:var(--wine-dark); transform:translateY(-1px); }
 .upload-button:disabled { opacity:.55; cursor:not-allowed; }

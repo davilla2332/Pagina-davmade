@@ -60,6 +60,7 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [albumMessage, setAlbumMessage] = useState("");
   const [storageReady, setStorageReady] = useState(true);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const albumFormRef = useRef<HTMLFormElement>(null);
   const firstMeetingLabel = useMemo(() => new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(FIRST_MEETING), []);
@@ -83,6 +84,17 @@ export default function Home() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    setPreviewUrl(file ? URL.createObjectURL(file) : null);
+  }
 
   async function sayYes() {
     if (saving || acceptedAt) { setShowLetter(true); return; }
@@ -114,6 +126,7 @@ export default function Home() {
       if (!response.ok) throw new Error(result.error || "No pudimos guardar la foto.");
       setMemories((current) => [result.memory as Memory, ...current]);
       albumFormRef.current?.reset();
+      setPreviewUrl(null);
       setAlbumMessage("El recuerdo se guardó en nuestro álbum ♡");
     } catch (error) {
       setAlbumMessage(error instanceof Error ? error.message : "No pudimos guardar la foto.");
@@ -191,11 +204,34 @@ export default function Home() {
           <aside className="upload-card">
             <div className="upload-card__top"><span><HeartIcon /></span><div><p>AGREGAR UN RECUERDO</p><h3>Una foto para nuestra historia</h3></div></div>
             <form ref={albumFormRef} onSubmit={uploadMemory}>
-              <label className="file-drop">
-                <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required />
-                <span className="file-drop__icon">＋</span>
-                <strong>Elige una foto</strong>
-                <small>JPG, PNG, WEBP o AVIF · máximo 4 MB</small>
+              <label className={`file-drop ${previewUrl ? "file-drop--preview" : ""}`}>
+                <input
+                  name="photo"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
+                  onChange={handlePhotoChange}
+                  required
+                />
+                {previewUrl ? (
+                  <>
+                    <div className="file-preview">
+                      {/* Local object URL used only for the preview before uploading. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={previewUrl} alt="Vista previa de la foto seleccionada" />
+                      <span className="file-preview__overlay">Cambiar foto</span>
+                    </div>
+                    <div className="file-preview__footer">
+                      <strong>Foto seleccionada ✓</strong>
+                      <small>Haz clic para elegir otra</small>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="file-drop__icon">＋</span>
+                    <strong>Elige una foto</strong>
+                    <small>JPG, PNG, WEBP o AVIF · máximo 4 MB</small>
+                  </>
+                )}
               </label>
               <label><span>Título</span><input name="title" maxLength={80} placeholder="Ej. Nuestro primer paseo" required /></label>
               <label><span>Leyenda</span><textarea name="caption" maxLength={300} rows={4} placeholder="¿Qué hizo especial este momento?" /></label>
