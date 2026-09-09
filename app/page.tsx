@@ -208,8 +208,8 @@ export default function Home() {
           <div className="album-gallery" aria-live="polite">
             {albumLoading ? (
               <div className="album-empty"><span>♡</span><h3>Abriendo nuestro álbum…</h3></div>
-            ) : memories.length ? memories.map((memory, index) => (
-              <article className={`memory-card ${index % 3 === 1 ? "memory-card--tall" : ""}`} key={memory.id}>
+            ) : memories.length ? memories.map((memory) => (
+              <article className="memory-card" key={memory.id}>
                 <div className="memory-photo">
                   {/* Remote Supabase images have dynamic hostnames, so a native image is intentional here. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
