@@ -128,6 +128,7 @@ export default function Home() {
   const [dashboardFilter, setDashboardFilter] = useState<DashboardFilter>("all");
   const [showCalendarForm, setShowCalendarForm] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => toDateKey(new Date()));
+  const [selectedCalendarItem, setSelectedCalendarItem] = useState<DisplayCalendarItem | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
 
   const [capsules, setCapsules] = useState<Capsule[]>([]);
@@ -338,6 +339,11 @@ export default function Home() {
     setShowCalendarForm(true);
   }
 
+  function openCalendarItem(item: DisplayCalendarItem) {
+    setSelectedCalendarItem(item);
+    setCalendarMessage("");
+  }
+
   async function saveCalendarItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (calendarSaving) return;
@@ -384,6 +390,7 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "No pudimos actualizar la tarea.");
       setCalendarItems((current) => current.map((currentItem) => currentItem.id === Number(item.id) ? result.item : currentItem));
+      setSelectedCalendarItem((current) => current && current.id === item.id ? { ...(result.item as CalendarItem), id: String((result.item as CalendarItem).id) } : current);
     } catch (error) {
       setCalendarMessage(error instanceof Error ? error.message : "No pudimos actualizar la tarea.");
     }
@@ -403,6 +410,7 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "No pudimos eliminarlo.");
       setCalendarItems((current) => current.filter((currentItem) => currentItem.id !== Number(item.id)));
+      setSelectedCalendarItem((current) => current?.id === item.id ? null : current);
       setCalendarMessage("Elemento eliminado del tablero.");
     } catch (error) {
       setCalendarMessage(error instanceof Error ? error.message : "No pudimos eliminarlo.");
@@ -540,20 +548,42 @@ export default function Home() {
             </div>
             <div className="calendar-grid calendar-days" aria-busy={calendarLoading}>
               {monthCells.map((cell) => (
-                <button key={cell.key} className={`calendar-day ${cell.currentMonth ? "" : "calendar-day--muted"} ${cell.key === toDateKey(new Date()) ? "calendar-day--today" : ""}`} onDoubleClick={() => openCalendarForm(cell.key)} onClick={() => setSelectedCalendarDate(cell.key)}>
+                <div
+                  key={cell.key}
+                  className={`calendar-day ${cell.currentMonth ? "" : "calendar-day--muted"} ${cell.key === toDateKey(new Date()) ? "calendar-day--today" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onDoubleClick={() => openCalendarForm(cell.key)}
+                  onClick={() => setSelectedCalendarDate(cell.key)}
+                  onKeyDown={(event) => { if (event.key === "Enter") setSelectedCalendarDate(cell.key); }}
+                >
                   <span className="calendar-day__number">{cell.date.getDate()}</span>
                   <div className="calendar-day__items">
                     {cell.items.slice(0, 3).map((item) => (
-                      <span key={item.id} className={`calendar-chip calendar-chip--${item.kind} ${item.completed ? "calendar-chip--done" : ""}`} title={item.title}>
+                      <span
+                        key={item.id}
+                        className={`calendar-chip calendar-chip--${item.kind} ${item.completed ? "calendar-chip--done" : ""}`}
+                        title={`${item.title} · clic para ver comentarios`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => { event.stopPropagation(); openCalendarItem(item); }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openCalendarItem(item);
+                          }
+                        }}
+                      >
                         <i>{calendarKindIcon(item.kind)}</i>{item.title}
                       </span>
                     ))}
                     {cell.items.length > 3 && <small>+{cell.items.length - 3} más</small>}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
-            <p className="calendar-help">Consejo: haz doble clic sobre un día para agregar algo directamente en esa fecha.</p>
+            <p className="calendar-help">Consejo: haz clic sobre una tarea o evento para ver sus comentarios. Haz doble clic sobre un día para agregar algo nuevo.</p>
           </div>
 
           <aside className="dashboard-right">
@@ -564,12 +594,20 @@ export default function Home() {
                 {calendarLoading ? <p className="upcoming-empty">Cargando nuestro calendario…</p> : upcomingItems.length ? upcomingItems.map((item) => {
                   const date = parseDateKey(item.event_date);
                   return (
-                    <article key={item.id} className={item.completed ? "upcoming-item upcoming-item--done" : "upcoming-item"}>
+                    <article
+                      key={item.id}
+                      className={item.completed ? "upcoming-item upcoming-item--done" : "upcoming-item"}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openCalendarItem(item)}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openCalendarItem(item); }}
+                      title="Ver comentarios y detalles"
+                    >
                       <div className={`upcoming-date upcoming-date--${item.kind}`}><span>{MONTHS[date.getMonth()].slice(0, 3).toUpperCase()}</span><strong>{date.getDate()}</strong></div>
                       <div className="upcoming-copy"><p><span>{calendarKindIcon(item.kind)}</span>{item.title}</p><small>{item.event_time ? item.event_time.slice(0, 5) : "Todo el día"} · {calendarKindLabel(item.kind)}</small></div>
                       <div className="upcoming-actions">
-                        {item.kind === "task" && !item.system && <button title={item.completed ? "Marcar pendiente" : "Marcar completada"} onClick={() => toggleCalendarTask(item)}>{item.completed ? "↶" : "✓"}</button>}
-                        {!item.system && <button title="Eliminar" onClick={() => deleteCalendarItem(item)}>×</button>}
+                        {item.kind === "task" && !item.system && <button title={item.completed ? "Marcar pendiente" : "Marcar completada"} onClick={(event) => { event.stopPropagation(); toggleCalendarTask(item); }}>{item.completed ? "↶" : "✓"}</button>}
+                        {!item.system && <button title="Eliminar" onClick={(event) => { event.stopPropagation(); deleteCalendarItem(item); }}>×</button>}
                       </div>
                     </article>
                   );
@@ -754,6 +792,37 @@ export default function Home() {
             <div className="capsule-letter-message">{openedCapsule.message?.split("\n").map((line, index) => <p key={index}>{line || <>&nbsp;</>}</p>)}</div>
             <p className="capsule-letter-signature">Un mensaje que esperó el momento correcto para volver a ustedes. ♡</p>
             <button className="capsule-close-button" onClick={() => setOpenedCapsule(null)}>Guardar este momento <span>♡</span></button>
+          </section>
+        </div>
+      )}
+
+      {selectedCalendarItem && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelectedCalendarItem(null)}>
+          <section className="calendar-detail-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setSelectedCalendarItem(null)} aria-label="Cerrar detalles">×</button>
+            <div className={`calendar-detail-icon calendar-detail-icon--${selectedCalendarItem.kind}`}>{calendarKindIcon(selectedCalendarItem.kind)}</div>
+            <p className="letter-kicker">{calendarKindLabel(selectedCalendarItem.kind).toUpperCase()}</p>
+            <h2 id="calendar-detail-title">{selectedCalendarItem.title}</h2>
+            <div className="calendar-detail-meta">
+              <span><strong>Fecha</strong>{formatLongDate(selectedCalendarItem.event_date)}</span>
+              <span><strong>Hora</strong>{selectedCalendarItem.event_time ? selectedCalendarItem.event_time.slice(0, 5) : "Todo el día"}</span>
+              {selectedCalendarItem.kind === "task" && <span><strong>Estado</strong>{selectedCalendarItem.completed ? "Completada ✓" : "Pendiente"}</span>}
+            </div>
+            <div className="calendar-detail-comments">
+              <span>COMENTARIOS</span>
+              <p>{selectedCalendarItem.details?.trim() || "No se agregaron comentarios a esta tarea o acontecimiento."}</p>
+            </div>
+            <div className="calendar-detail-actions">
+              {selectedCalendarItem.kind === "task" && !selectedCalendarItem.system && (
+                <button className="calendar-detail-primary" onClick={() => toggleCalendarTask(selectedCalendarItem)}>
+                  {selectedCalendarItem.completed ? "Marcar como pendiente" : "Marcar como completada"}
+                </button>
+              )}
+              {!selectedCalendarItem.system && (
+                <button className="calendar-detail-danger" onClick={() => deleteCalendarItem(selectedCalendarItem)}>Eliminar</button>
+              )}
+              <button className="calendar-detail-secondary" onClick={() => setSelectedCalendarItem(null)}>Cerrar</button>
+            </div>
           </section>
         </div>
       )}
