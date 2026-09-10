@@ -22,6 +22,15 @@ type CalendarItem = {
   created_at: string;
 };
 type DisplayCalendarItem = Omit<CalendarItem, "id"> & { id: string; system?: boolean };
+type Capsule = {
+  id: number;
+  title: string;
+  author: string;
+  open_date: string;
+  created_at: string;
+  can_open: boolean;
+  message?: string;
+};
 type DashboardFilter = "all" | CalendarKind;
 
 function elapsedSince(date: Date | null): Elapsed {
@@ -45,6 +54,16 @@ function toDateKey(date: Date) {
 function parseDateKey(key: string) {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(year, month - 1, day, 12, 0, 0);
+}
+
+function daysUntilDate(key: string) {
+  const today = new Date();
+  const todayAtNoon = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
+  return Math.max(0, Math.ceil((parseDateKey(key).getTime() - todayAtNoon.getTime()) / 86_400_000));
+}
+
+function formatLongDate(key: string) {
+  return new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(parseDateKey(key));
 }
 
 function calendarKindLabel(kind: CalendarKind) {
@@ -111,9 +130,18 @@ export default function Home() {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => toDateKey(new Date()));
   const [calendarSaving, setCalendarSaving] = useState(false);
 
+  const [capsules, setCapsules] = useState<Capsule[]>([]);
+  const [capsuleLoading, setCapsuleLoading] = useState(true);
+  const [capsuleReady, setCapsuleReady] = useState(true);
+  const [capsuleMessage, setCapsuleMessage] = useState("");
+  const [showCapsuleForm, setShowCapsuleForm] = useState(false);
+  const [capsuleSaving, setCapsuleSaving] = useState(false);
+  const [openedCapsule, setOpenedCapsule] = useState<Capsule | null>(null);
+
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const albumFormRef = useRef<HTMLFormElement>(null);
   const calendarFormRef = useRef<HTMLFormElement>(null);
+  const capsuleFormRef = useRef<HTMLFormElement>(null);
   const firstMeetingLabel = useMemo(() => new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(FIRST_MEETING), []);
 
   useEffect(() => {
@@ -144,6 +172,27 @@ export default function Home() {
       setAlbumLoading(false);
       setCalendarLoading(false);
     });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/capsules")
+      .then((response) => response.json())
+      .then((result) => {
+        if (!active) return;
+        if (Array.isArray(result.capsules)) setCapsules(result.capsules);
+        const configured = result.configured !== false;
+        setCapsuleReady(configured);
+        if (!configured) setCapsuleMessage("La cápsula del tiempo está lista; solo falta ejecutar la actualización de Supabase.");
+      })
+      .catch(() => {
+        if (!active) return;
+        setCapsuleMessage("No pudimos cargar las cápsulas del tiempo en este momento.");
+      })
+      .finally(() => {
+        if (active) setCapsuleLoading(false);
+      });
     return () => { active = false; };
   }, []);
 
@@ -360,11 +409,77 @@ export default function Home() {
     }
   }
 
+  async function saveCapsule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (capsuleSaving) return;
+    setCapsuleSaving(true);
+    setCapsuleMessage("");
+    try {
+      const formData = new FormData(event.currentTarget);
+      const payload = {
+        title: String(formData.get("title") || ""),
+        author: String(formData.get("author") || ""),
+        message: String(formData.get("message") || ""),
+        openDate: String(formData.get("openDate") || ""),
+        uploadCode: String(formData.get("uploadCode") || ""),
+      };
+      const response = await fetch("/api/capsules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No pudimos sellar la cápsula.");
+      setCapsules((current) => [result.capsule as Capsule, ...current]);
+      capsuleFormRef.current?.reset();
+      setShowCapsuleForm(false);
+      setCapsuleMessage(`Cápsula sellada. Podrá abrirse el ${formatLongDate(result.capsule.open_date)} ♡`);
+    } catch (error) {
+      setCapsuleMessage(error instanceof Error ? error.message : "No pudimos sellar la cápsula.");
+    } finally {
+      setCapsuleSaving(false);
+    }
+  }
+
+  async function openTimeCapsule(capsule: Capsule) {
+    setCapsuleMessage("");
+    try {
+      const response = await fetch(`/api/capsules?id=${capsule.id}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Esta cápsula todavía no puede abrirse.");
+      const opened = result.capsule as Capsule;
+      setCapsules((current) => current.map((item) => item.id === opened.id ? { ...item, ...opened, can_open: true } : item));
+      setOpenedCapsule(opened);
+    } catch (error) {
+      setCapsuleMessage(error instanceof Error ? error.message : "Esta cápsula todavía no puede abrirse.");
+    }
+  }
+
+  async function deleteTimeCapsule(capsule: Capsule) {
+    if (!window.confirm(`¿Eliminar la cápsula “${capsule.title}”? Esta acción no se puede deshacer.`)) return;
+    const uploadCode = window.prompt("Escribe la clave de nuestro álbum para eliminar esta cápsula:");
+    if (!uploadCode) return;
+    try {
+      const response = await fetch("/api/capsules", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: capsule.id, uploadCode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No pudimos eliminar la cápsula.");
+      setCapsules((current) => current.filter((item) => item.id !== capsule.id));
+      setOpenedCapsule((current) => current?.id === capsule.id ? null : current);
+      setCapsuleMessage("Cápsula eliminada.");
+    } catch (error) {
+      setCapsuleMessage(error instanceof Error ? error.message : "No pudimos eliminar la cápsula.");
+    }
+  }
+
   return (
     <main>
       <nav className="nav-shell" aria-label="Navegación principal">
         <a className="brand" href="#inicio" aria-label="Ir al inicio"><span className="brand-mark"><HeartIcon filled /></span><span>David <i>&</i> Madeline</span></a>
-        <div className="nav-links"><a href="#historia">Nuestra historia</a><a href="#momentos">Momentos</a><a className="nav-tablero" href="#tablero">Tablero</a></div>
+        <div className="nav-links"><a href="#historia">Nuestra historia</a><a href="#momentos">Momentos</a><a className="nav-tablero" href="#tablero">Tablero</a><a className="nav-capsule" href="#capsula">Cápsula</a></div>
       </nav>
 
       <section className="hero" id="inicio">
@@ -473,6 +588,62 @@ export default function Home() {
         {calendarMessage && <p className={`calendar-message ${calendarReady ? "" : "calendar-message--setup"}`} role="status">{calendarMessage}</p>}
       </section>
 
+      <section className="capsule-section" id="capsula">
+        <div className="capsule-heading">
+          <div>
+            <p className="overline"><span /> MENSAJES PARA NUESTRO FUTURO</p>
+            <h2>Cápsula del tiempo</h2>
+            <p>Escribimos hoy palabras que solo podremos volver a leer cuando llegue el momento que elegimos.</p>
+          </div>
+          <button className="capsule-new" onClick={() => { setCapsuleMessage(""); setShowCapsuleForm(true); }} disabled={!capsuleReady}><span>＋</span>Crear nueva cápsula</button>
+        </div>
+
+        <div className="capsule-layout">
+          <div className="capsule-main">
+            {capsuleLoading ? (
+              <div className="capsule-empty"><span>♡</span><h3>Buscando nuestros mensajes para el futuro…</h3></div>
+            ) : capsules.length ? (
+              <div className="capsule-grid">
+                {capsules.map((capsule) => {
+                  const days = daysUntilDate(capsule.open_date);
+                  return (
+                    <article className={`capsule-card ${capsule.can_open ? "capsule-card--open" : ""}`} key={capsule.id}>
+                      <div className="capsule-card__visual"><span className="capsule-envelope">✉</span><small>{capsule.can_open ? "LISTA PARA ABRIR" : "SELLADA"}</small></div>
+                      <div className="capsule-card__body">
+                        <div className="capsule-card__meta"><span>De: {capsule.author}</span><button title="Eliminar cápsula" onClick={() => deleteTimeCapsule(capsule)}>×</button></div>
+                        <h3>{capsule.title}</h3>
+                        <p className="capsule-open-date">Se abre el <strong>{formatLongDate(capsule.open_date)}</strong></p>
+                        {capsule.can_open ? (
+                          <><p className="capsule-ready-copy">El momento llegó. Este mensaje ya puede volver a tus manos.</p><button className="capsule-open-button" onClick={() => openTimeCapsule(capsule)}>Abrir cápsula <span>♡</span></button></>
+                        ) : (
+                          <><div className="capsule-countdown"><strong>{days}</strong><span>{days === 1 ? "día" : "días"} para abrirla</span></div><button className="capsule-locked-button" type="button" disabled><span>⌾</span> Todavía está bloqueada</button></>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="capsule-empty"><span>✉</span><h3>Nuestra primera cápsula empieza aquí</h3><p>Escriban algo que quieran volver a sentir dentro de unos meses o unos años.</p><button onClick={() => setShowCapsuleForm(true)} disabled={!capsuleReady}>Crear la primera cápsula</button></div>
+            )}
+          </div>
+
+          <aside className="capsule-how">
+            <p className="capsule-how__quote">“Hay palabras que se disfrutan más cuando el tiempo las vuelve a encontrar.”</p>
+            <h3>¿Cómo funciona?</h3>
+            <ol>
+              <li><span>1</span><div><strong>Escriban el mensaje</strong><p>Indica quién lo escribe, un título y todo lo que quieras decir.</p></div></li>
+              <li><span>2</span><div><strong>Elijan la fecha</strong><p>La cápsula permanecerá cerrada hasta ese día.</p></div></li>
+              <li><span>3</span><div><strong>Séllenla con la clave</strong><p>Para guardarla se necesita la misma contraseña privada del álbum.</p></div></li>
+              <li><span>4</span><div><strong>Esperen el momento</strong><p>Cuando llegue la fecha aparecerá el botón para abrirla y leerla.</p></div></li>
+            </ol>
+            <div className="capsule-security"><span>⌾</span><p>Los mensajes bloqueados no se envían al navegador antes de su fecha de apertura.</p></div>
+          </aside>
+        </div>
+
+        {capsuleMessage && <p className={`capsule-message ${capsuleReady ? "" : "capsule-message--setup"}`} role="status">{capsuleMessage}</p>}
+      </section>
+
       <section className="story-section" id="historia">
         <div className="section-heading">
           <p className="overline"><span /> NUESTRO TIEMPO JUNTOS <span /></p><h2>Cada segundo nos trajo hasta aquí</h2><p>Tres momentos, una misma historia y todo lo que todavía nos queda por vivir.</p>
@@ -548,6 +719,44 @@ export default function Home() {
       </section>
 
       <footer><span><HeartIcon filled /></span><p>Hecho con amor para Madeline</p><small>David & Madeline · Nuestra historia apenas comienza</small></footer>
+
+      {showCapsuleForm && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowCapsuleForm(false)}>
+          <section className="capsule-modal" role="dialog" aria-modal="true" aria-labelledby="capsule-form-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowCapsuleForm(false)} aria-label="Cerrar formulario">×</button>
+            <div className="capsule-modal__icon">✉</div>
+            <p className="letter-kicker">PARA NUESTRO FUTURO</p>
+            <h2 id="capsule-form-title">Crear nueva cápsula</h2>
+            <p className="capsule-modal__intro">Escribe algo que quieras que uno de ustedes —o los dos— vuelva a encontrar en una fecha especial.</p>
+            <form ref={capsuleFormRef} onSubmit={saveCapsule}>
+              <label><span>¿Quién escribe este mensaje?</span><input name="author" maxLength={60} placeholder="Ej. David, Madeline o Los dos" required /></label>
+              <label><span>Título de la cápsula</span><input name="title" maxLength={100} placeholder="Ej. Para nuestro primer aniversario" required /></label>
+              <label><span>Mensaje</span><textarea name="message" maxLength={4000} rows={9} placeholder="Escribe aquí todo lo que quieres decirle a nuestro futuro…" required /></label>
+              <div className="capsule-form-row">
+                <label><span>Fecha en que se podrá abrir</span><input name="openDate" type="date" min={toDateKey(new Date())} required /></label>
+                <label><span>Clave para sellarla</span><input name="uploadCode" type="password" autoComplete="off" placeholder="Clave de nuestro álbum" required /></label>
+              </div>
+              <p className="capsule-form-note"><span>⌾</span> Una vez guardado, el mensaje permanecerá oculto hasta la fecha elegida.</p>
+              <button className="capsule-save-button" type="submit" disabled={capsuleSaving || !capsuleReady}>{capsuleSaving ? "Sellando cápsula…" : "Guardar y sellar cápsula"}<span>♡</span></button>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {openedCapsule && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setOpenedCapsule(null)}>
+          <section className="capsule-letter-modal" role="dialog" aria-modal="true" aria-labelledby="opened-capsule-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setOpenedCapsule(null)} aria-label="Cerrar cápsula">×</button>
+            <div className="capsule-letter-modal__heart">♡</div>
+            <p className="letter-kicker">CÁPSULA ABIERTA</p>
+            <h2 id="opened-capsule-title">{openedCapsule.title}</h2>
+            <div className="capsule-letter-meta"><span>Escrita por <strong>{openedCapsule.author}</strong></span><span>Sellada el {new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(new Date(openedCapsule.created_at))}</span><span>Fecha de apertura: {formatLongDate(openedCapsule.open_date)}</span></div>
+            <div className="capsule-letter-message">{openedCapsule.message?.split("\n").map((line, index) => <p key={index}>{line || <>&nbsp;</>}</p>)}</div>
+            <p className="capsule-letter-signature">Un mensaje que esperó el momento correcto para volver a ustedes. ♡</p>
+            <button className="capsule-close-button" onClick={() => setOpenedCapsule(null)}>Guardar este momento <span>♡</span></button>
+          </section>
+        </div>
+      )}
 
       {showCalendarForm && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowCalendarForm(false)}>
