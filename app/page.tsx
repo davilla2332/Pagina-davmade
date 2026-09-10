@@ -116,6 +116,7 @@ export default function Home() {
   const [albumMessage, setAlbumMessage] = useState("");
   const [storageReady, setStorageReady] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
 
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(true);
@@ -202,6 +203,23 @@ export default function Home() {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (!selectedMemory) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedMemory(null);
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [selectedMemory]);
 
   function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -743,10 +761,16 @@ export default function Home() {
               <div className="album-empty"><span>♡</span><h3>Abriendo nuestro álbum…</h3></div>
             ) : memories.length ? memories.map((memory) => (
               <article className="memory-card" key={memory.id}>
-                <div className="memory-photo">
+                <button
+                  className="memory-photo"
+                  type="button"
+                  onClick={() => setSelectedMemory(memory)}
+                  aria-label={`Ver completa la foto: ${memory.title}`}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={memory.photo_url} alt={memory.title} loading="lazy" />
-                </div>
+                  <span className="memory-photo__zoom" aria-hidden="true"><b>＋</b> Ver foto completa</span>
+                </button>
                 <div className="memory-copy"><p>{new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(new Date(memory.created_at))}</p><h3>{memory.title}</h3>{memory.caption && <span>{memory.caption}</span>}</div>
               </article>
             )) : (
@@ -757,6 +781,30 @@ export default function Home() {
       </section>
 
       <footer><span><HeartIcon filled /></span><p>Hecho con amor para Madeline</p><small>David & Madeline · Nuestra historia apenas comienza</small></footer>
+
+      {selectedMemory && (
+        <div className="photo-lightbox" role="presentation" onMouseDown={() => setSelectedMemory(null)}>
+          <section
+            className="photo-lightbox__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="photo-lightbox-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="photo-lightbox__close" type="button" onClick={() => setSelectedMemory(null)} aria-label="Cerrar foto">×</button>
+            <div className="photo-lightbox__image-wrap">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={selectedMemory.photo_url} alt={selectedMemory.title} className="photo-lightbox__image" />
+            </div>
+            <div className="photo-lightbox__caption">
+              <p>{new Intl.DateTimeFormat("es-PA", { day: "numeric", month: "long", year: "numeric" }).format(new Date(selectedMemory.created_at))}</p>
+              <h2 id="photo-lightbox-title">{selectedMemory.title}</h2>
+              {selectedMemory.caption && <span>{selectedMemory.caption}</span>}
+              <small>Haz clic fuera de la foto o presiona Esc para cerrar.</small>
+            </div>
+          </section>
+        </div>
+      )}
 
       {showCapsuleForm && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowCapsuleForm(false)}>
